@@ -31,9 +31,12 @@ entity lcd is
            RS:out std_logic;  				--WE
            RW:out std_logic;				--ADR(0)
 	   CLK:in std_logic;				--GCLK2
+		 ps2d, ps2c: in  std_logic;
 	   --ADR1:out std_logic;				--ADR(1)
 	   --ADR2:out std_logic;				--ADR(2)
-	   --CS:out std_logic;				--CSC
+	   --CS:out std_logic;		--CSC
+		ler_out:out std_logic;
+		key: out std_logic_vector (7 downto 0);
 	   OE:out std_logic;				--OE
 	   rst:in std_logic		);		--BTN
 	   --rdone: out std_logic);			--WriteDone output to work with DI05 test
@@ -46,11 +49,10 @@ architecture Behavioral of lcd is
 		
 component key_machine is
    port (
-      clk, reset: in  std_logic;
+		clk, reset: in  std_logic;
       ps2d, ps2c: in  std_logic;
-      rd_key_code: in std_logic;
-      key_code: out std_logic_vector(7 downto 0);
-      kb_buf_empty: out std_logic
+      key: out std_logic_vector(7 downto 0);
+		flag_ler: out std_logic
    ); 
 	
 end component key_machine;
@@ -117,40 +119,34 @@ end component key_machine;
 	signal stCurW:wstate:= stIdle; 						--Write control state machine
 	signal stNextW:wstate;
 	signal writeDone:std_logic:= '0';					--Command set finish
+	
 
-variable A0: std_logic_vector(7 downto 0) := "00101101";
-variable A1: std_logic_vector(7 downto 0) := "00101101";
-variable A2: std_logic_vector(7 downto 0) := "00101101";	
-variable A3: std_logic_vector(7 downto 0) := "00101101";
-variable A4: std_logic_vector(7 downto 0) := "00101101";
-variable A5: std_logic_vector(7 downto 0) := "00101101";
-variable B0: std_logic_vector(7 downto 0) := "00100000"; -- SPACE
-variable E0: std_logic_vector(7 downto 0) := "00110000"; -- 0
-variable erro: int;
-variable acerto: int := 0;
 
-	type LCD_CMDS_T is array(integer range 0 to 13) of std_logic_vector(9 downto 0);
+	type LCD_CMDS_T is array(integer range 0 to 12) of std_logic_vector(9 downto 0);
 	SIGNAL LCD_CMDS : LCD_CMDS_T := ( 0 => "00"&X"3C",			--Function Set
 					    1 => "00"&X"0C",			--Display ON, Cursor OFF, Blink OFF
 					    2 => "00"&X"01",			--Clear Display
 					    3 => "00"&X"02", 			--return home
-
-					    4 => "10"& A0, 			--T  --P --G
-					    5 => "10"& A1,  			--A  --E	--A
-					    6 => "10"& A2,  			--O  --R	--N	
-					    7 => "10"& A3, 			--K  --D --H
-					    8 => "10"& A4, 			--E  --E --O
-					    9 => "10"& A5,  			--Y  --U --U
-					    10 => "10"& B0, 		   --BLANK SPACE --!					   
-					    11 => "10"& E0,  		   -- Número de erros
+					    4 => "10"&X"48", 			--T  --P --G
+					    5 => "10"&X"65",  			--A  --E	--A
+					    6 => "10"&X"6C",  			--O  --R	--N	
+					    7 => "10"&X"6C", 			--K  --D --H
+					    8 => "10"&X"6F", 			--E  --E --O
+					    9 => "10"&X"20",  			--Y  --U --U
+					    10 => "10"&X"20", 		   --BLANK SPACE --!					   
+					    11 => "10"&X"20",  		   -- Número de erros
 					    12 => "00"&X"02"			--return home
 );	
 													
+signal keycode:STD_LOGIC_VECTOR ( 7 DOWNTO 0);
+signal ler:std_logic;
+signal lcd_cmd_ptr : integer range 0 to LCD_CMDS'HIGH	+ 1 := 0;
 
 begin 
 
-
-keymachine: key_machine port map(clk, reset,ps2d, ps2c,rd_key_code, key_code, kb_buf_empty);
+key <= keycode;
+ler_out <= ler;
+keymachine: key_machine port map(clk, rst,ps2d, ps2c, keycode, ler);
  	
 	--  This process counts to 50, and then resets.  It is used to divide the clock signal time.
 	process (CLK, oneUSClk)
@@ -175,7 +171,7 @@ keymachine: key_machine port map(clk, reset,ps2d, ps2c,rd_key_code, key_code, kb
 		end process;
 
 	--This goes high when all commands have been run
-	writeDone <= '1' when (lcd_cmd_ptr = LCD_CMDS'HIGH) 
+	writeDone <= '1' when (lcd_cmd_ptr = LCD_CMDS'high) 
 		else '0';
 	--rdone <= '1' when stCur = stWait else '0';
 	--Increments the pointer so the statemachine goes through the commands
@@ -186,6 +182,8 @@ keymachine: key_machine port map(clk, reset,ps2d, ps2c,rd_key_code, key_code, kb
 					lcd_cmd_ptr <= lcd_cmd_ptr + 1;
 				elsif stCur = stPowerOn_Delay or stNext = stPowerOn_Delay then
 					lcd_cmd_ptr <= 0;
+				elsif ler = '1' then
+					lcd_cmd_ptr <= 3;
 				else
 					lcd_cmd_ptr <= lcd_cmd_ptr;
 				end if;
@@ -341,130 +339,119 @@ keymachine: key_machine port map(clk, reset,ps2d, ps2c,rd_key_code, key_code, kb
 			end if;
 		end process;
 		
-	-- Maquina de estado - leitura 
-	-- rd_key_code: in / key_code: out / kb_buf_empty: out / CLK in
-	
-	process (CLK, rst)
-	if (clk'event and clk='1') then
-		case state is
-			when 0 => if estado = '0' then
-							state <=1;
-							flush <= '0'; 
-							flag_ler <= '0';
-							key <= key_code;
-						 end if;
-			when 1 => 
-				flag_ler <= '1'; 
-				state <= '2';
-				flush <= 0;							 
-			when 2 => flush <= '1'; 
-						 flag_ler <= '0';
-						 state <= '0';  
-			end case;
-		end if;
-   end process;
-		begin
-			if oneUSClk = '1' and oneUSClk'Event then
-				if rst = '1' then
-					stCurW <= stIdle;
-				else
-					stCurW <= stNextW;
-				end if;
-			end if;
-		end process;
 	
 	-- Reescrita LCD
 	
-	if kb_buf_empty = '0' then
+	
+	process(ler, keycode)
+	
+	variable A0: std_logic_vector(7 downto 0) := "00101101";
+	variable A1: std_logic_vector(7 downto 0) := "00101101";
+	variable A2: std_logic_vector(7 downto 0) := "00101101";	
+	variable A3: std_logic_vector(7 downto 0) := "00101101";
+	variable A4: std_logic_vector(7 downto 0) := "00101101";
+	variable A5: std_logic_vector(7 downto 0) := "00101101";
+	variable B0: std_logic_vector(7 downto 0) := "00100000"; -- SPACE
+	variable E0: std_logic_vector(7 downto 0) := "00110000"; -- 0
+	variable erro: integer := 0;
+	variable acerto: integer := 0;
+	
+  begin
+	if ler = '1' then
 
-	if key_code = "00101100" then  	 -- T
-		if A0 != "01010100"
-			A0 <= "01010100";
-			acerto <= acerto + 1;		
+
+	if keycode= "00101100" then  	 -- T
+		if A0 /= "01010100" then
+			A0 := "01010100";
+			acerto := acerto + 1;		
 		end if;
 		
-	elsif key_code = "00011100" then  -- A
-		if A0 != "01000001"
-		
-		A0 <= "01000001";
-			acerto <= acerto + 1;		
+	elsif keycode= "00011100" then  -- A
+		if A1 /= "01000001" then		
+			A1 := "01000001";
+			acerto := acerto + 1;		
 		end if;
 		
-	elsif key_code = "01000100" then  -- O
-		if A0 != "01001111"
-			A0 <= "01001111";
-			acerto <= acerto + 1;		
+	elsif keycode= "01000100" then  -- O
+		if A2 /= "01001111" then
+			A2 := "01001111";
+			acerto := acerto + 1;		
 		end if;	
 
-	elsif key_code = "01000010" then  -- K
-		if A0 != "01001011"
-			A0 <= "01001011";
-			acerto <= acerto + 1;		
+	elsif keycode= "01000010" then  -- K
+		if A3 /= "01001011" then
+			A3 := "01001011";
+			acerto := acerto + 1;		
 		end if;	
 		
-	elsif key_code = "00100100" then  -- E
-		if A0 != "01000101"
-			A0 <= "01000101";
-			acerto <= acerto + 1;		
+	elsif keycode= "00100100" then  -- E
+		if A4 /= "01000101" then
+			A4 := "01000101";
+			acerto := acerto + 1;		
 		end if;	
 		
-	elsif key_code = "00110101" then  -- Y
-		if A0 != "01011001"
-			A0 <= "01011001";
-			acerto <= acerto + 1;		
+	elsif keycode= "00110101" then  -- Y
+		if A5 /= "01011001" then
+			A5 := "01011001";
+			acerto := acerto + 1;		
 		end if;	
 	 
 	else
-		erro = erro + 1;
+		erro := erro + 1;
 	end if;	
 		
 	end if;
-
-	WITH erro SELECT
-	ascii_code <=
-				"00110000" when 0,  -- 0
-				"00110001" when 1,  -- 1
-				"00110010" when 2,  -- 2
-				"00110011" when 3,  -- 3
-				"00110100" when 4,  -- 4
-				"00110101" when 5,  -- 5
-				"00110110" when 6;  -- 6
+	
+ if erro = 0 then
+		  E0 := "00110000";
+		elsif erro = 1 then 
+			E0 :=	"00110001";
+				elsif erro = 2 then 
+			E0 :=	"00110010";
+				elsif  erro = 3 then 
+			E0 :=	"00110011";
+				elsif  erro = 4 then 
+			E0 :=	"00110100";
+				elsif  erro = 5 then 
+			E0 :=	"00110101";
+				elsif  erro = 6 then
+			E0 :=	"00110110";
+			end if;
 				
 	if acerto = 6 then
-		A0 <= "01000111"; -- G
-		A1 <= "01000001"; -- A
-		A2 <= "01001110"; -- N
-		A3 <= "01001000"; -- H
-		A4 <= "01001111"; -- O
-		A5 <= "01010101"; -- U
-		B0 <= "00100000"; -- space
-		E0 <= "00100000"; -- space
+		A0 := "01000111"; -- G
+		A1 := "01000001"; -- A
+		A2 := "01001110"; -- N
+		A3 := "01001000"; -- H
+		A4 := "01001111"; -- O
+		A5 := "01010101"; -- U
+		B0 := "00100000"; -- space
+		E0 := "00100000"; -- space
 		
 	elsif erro = 6 then
-		A0 <= "01010000" -- P
-		A1 <= "01000101" -- E
-		A2 <= "01010010" -- R
-		A3 <= "01000100" -- D
-		A4 <= "01000101" -- E
-		A5 <= "01010101" -- U
-		B0 <= "00100000";  -- space
-		E0 <= "00100000";  -- space
+		A0 := "01010000"; -- P
+		A1 := "01000101";-- E
+		A2 := "01010010"; -- R
+		A3 := "01000100"; -- D
+		A4 := "01000101"; -- E
+		A5 := "01010101"; -- U
+		B0 := "00100000";  -- space
+		E0 := "00100000";  -- space
 
 end if;
-	
-	
-	-- Mudança da tela
-	
-		process (oneUSClk, rst)
-		begin
-			if oneUSClk = '1' and oneUSClk'Event then
-				if rst = '1' then
-					stCurW <= stIdle;
-				else
-					stCurW <= stNextW;
-				end if;
-			end if;
-		end process;
+
+LCD_CMDS(4) <= "10"& A0; 			--T  --P --G
+LCD_CMDS(5) <= "10"& A1; 			--A  --E	--A
+LCD_CMDS(6) <= "10"& A2;
+LCD_CMDS(7) <= "10"& A3;
+LCD_CMDS(8) <= "10"& A4;
+LCD_CMDS(9) <= "10"& A5;
+LCD_CMDS(10) <= "10"& B0;
+LCD_CMDS(11) <= "10"& E0;
+
+
+end process;
+
 
 	--This genearates the sequence of outputs needed to write to the LCD screen
 	process (stCurW, activateW)
