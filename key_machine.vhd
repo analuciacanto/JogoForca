@@ -1,40 +1,14 @@
-----------------------------------------------------------------------------------
--- Company: 
--- Engineer: 
--- 
--- Create Date:    15:26:34 06/04/2019 
--- Design Name: 
--- Module Name:    key_machine - Behavioral 
--- Project Name: 
--- Target Devices: 
--- Tool versions: 
--- Description: 
---
--- Dependencies: 
---
--- Revision: 
--- Revision 0.01 - File Created
--- Additional Comments: 
---
-----------------------------------------------------------------------------------
+---------------------------------------------------------------
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
-
--- Uncomment the following library declaration if using
--- arithmetic functions with Signed or Unsigned values
 use IEEE.NUMERIC_STD.ALL;
-
--- Uncomment the following library declaration if instantiating
--- any Xilinx primitives in this code.
---library UNISIM;
---use UNISIM.VComponents.all;
 
 entity key_machine is
 	port(
-	   clk, reset: in  std_logic;
+	  clk, reset: in  std_logic;
       ps2d, ps2c: in  std_logic;
       key: out std_logic_vector(7 downto 0);
-		flag_ler: out std_logic
+	flag_ler: out std_logic
 	);
 end key_machine;
 
@@ -51,20 +25,24 @@ component kb_code is
    );
 end component kb_code;
 
-signal estado: std_logic;
-signal flush: std_logic;
+type states is ( estadoInicial, estadoIntermediario, estadoFinal);
+
+signal estadoAtual : states := estadoInicial;
+signal proximoEstado : states;
+
+signal flush: std_logic := 0;
 signal key_code: std_logic_vector (7 downto 0) := "00000000";
-signal Key_buf: std_logic_vector (7 downto 0) := "00000000";
-signal state: natural range 0 to 2 := 0;
+signal key_buf: std_logic_vector (7 downto 0) := "00000000";
+-- signal state: natural range 0 to 2 := 0;
 signal clkcount:unsigned (5 downto 0) := "000000";
 signal oneusclk: std_logic; 
+signal emptyBuffer : STD_LOGIC;
 
 begin
-
-kbcode: kb_code port map(clk, reset, ps2d, ps2c, flush, key_code, estado);
+kbcode: kb_code port map(clk, reset, ps2d, ps2c, flush, key_code, emptyBuffer);
 key <= key_buf;
 
-	--  This process counts to 50, and then resets.  It is used to divide the clock signal time.
+	-- Divisor de clock 
 	process (CLK, oneUSClk)
     		begin
 			if (CLK = '1' and CLK'event) then
@@ -75,14 +53,46 @@ key <= key_buf;
 
 	oneUSClk <= clkCount(5);
 
-process(oneUSClk,estado,state,reset)
+process(oneUSClk, estadoAtual, state, reset, )
 begin
-	if (reset = '1') then 
-		state <= 0;
-		flush <= '0'; 
-		flag_ler <= '0';
-		key_buf <= "00000000";
-	elsif (oneUSClk'event and ONEUSClk='1') then
+	if (oneUSClk = '1' and oneUSClk'event) then
+		if estadoAtual = estadoInicial then
+		 	 if (emptyBuffer = '0') then
+				estadoAtual <= estadoIntermediario;
+				flush <= '1'; -- 0
+				flag_ler <= '0';
+				key_buff <= ;
+			else 
+				estadoAtual <= estadoInicial;
+				flush <='0';
+				flag_ler <= '0';
+				key_buf <= key_buf;
+			end if;
+		elsif (estadoAtual = estadoIntermediario) then
+			estadoAtual <= estadoFinal;
+			flag_ler <= '1';			
+			flush <= '0';		
+			key_buf <= key_code;
+		elsif ( estadoAtual = estadoFinal) then
+			estadoAtual <= estadoInicial;
+			flush <= '0'; 
+			flag_ler <= '0';
+			key_buf <= key_buf;
+		end if;
+	end if;
+end process;
+
+
+
+
+
+		-
+				
+		
+
+
+
+	elsif (oneUSClk'event and oneUSClk='1') then
 		case state is
 			when 0 => if estado = '0' then
 							state <=1;
