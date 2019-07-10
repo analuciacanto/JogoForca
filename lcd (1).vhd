@@ -20,9 +20,6 @@ end lcd;
 
 architecture Behavioral of lcd is
 
-------------------------------------------------------------------
---  Component Declarations
-------------------------------------------------------------------
   component kb_code port (
     clk, reset   : in  std_logic;       --clk da fpga
     ps2d, ps2c   : in  std_logic;
@@ -31,12 +28,6 @@ architecture Behavioral of lcd is
     kb_buf_empty : out std_logic        -- tecla foi escrita no buffer
     );
   end component kb_code;
-------------------------------------------------------------------
-
-------------------------------------------------------------------
---  Local Type Declarations
------------------------------------------------------------------
---  Symbolic names for all possible states of the state machines.
 
   --LCD control state machine
   type mstate is (
